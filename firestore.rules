@@ -1,0 +1,146 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: /users/{userId}
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - role: string (required, ['admin', 'member'])
+    //   - joinedAt: timestamp (optional)
+    //
+    // Collection: /groups/{groupId}
+    // Fields:
+    //   - name: string (required)
+    //   - description: string (optional)
+    //   - createdBy: string (required, userId)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: /groups/{groupId}/contributions/{contributionId}
+    // Fields:
+    //   - userId: string (required)
+    //   - groupId: string (required)
+    //   - amount: number (required, positive)
+    //   - type: string (required, ['savings', 'social_fund'])
+    //   - date: timestamp (required)
+    //   - status: string (required, ['pending', 'confirmed'])
+    //
+    // Collection: /groups/{groupId}/loans/{loanId}
+    // Fields:
+    //   - userId: string (required)
+    //   - groupId: string (required)
+    //   - amount: number (required, positive)
+    //   - interestRate: number (required)
+    //   - status: string (required, ['requested', 'approved', 'rejected', 'active', 'repaid'])
+    //   - requestedAt: timestamp (required)
+    //   - dueDate: timestamp (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "samwelemmanuelezekiel@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isPositive(val) {
+      return val is number && val > 0;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['uid', 'email', 'role']) &&
+               data.uid == userId &&
+               isValidEmail(data.email) &&
+               data.role in ['admin', 'member'];
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'member' || isAdmin());
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /groups/{groupId} {
+      function isValidGroup(data) {
+        return data.keys().hasAll(['name', 'createdBy', 'createdAt']) &&
+               data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+               data.createdBy == request.auth.uid;
+      }
+
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidGroup(request.resource.data);
+      allow update: if isAdmin() || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
+      allow delete: if isAdmin();
+
+      match /contributions/{contributionId} {
+        function isValidContribution(data) {
+          return data.keys().hasAll(['userId', 'groupId', 'amount', 'type', 'date', 'status']) &&
+                 data.userId is string &&
+                 data.groupId == groupId &&
+                 isPositive(data.amount) &&
+                 data.type in ['savings', 'social_fund'] &&
+                 data.status in ['pending', 'confirmed'] &&
+                 (!('phoneNumber' in data) || data.phoneNumber is string);
+        }
+
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidContribution(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
+        allow update: if isAdmin();
+        allow delete: if isAdmin();
+      }
+
+      match /loans/{loanId} {
+        function isValidLoan(data) {
+          return data.keys().hasAll(['userId', 'groupId', 'amount', 'interestRate', 'status', 'requestedAt']) &&
+                 data.userId is string &&
+                 data.groupId == groupId &&
+                 isPositive(data.amount) &&
+                 data.status in ['requested', 'approved', 'rejected', 'active', 'repaid'];
+        }
+
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidLoan(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
+        allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
+        allow delete: if isAdmin();
+      }
+
+      match /withdrawals/{withdrawalId} {
+        function isValidWithdrawal(data) {
+          return data.keys().hasAll(['userId', 'groupId', 'amount', 'status', 'requestedAt']) &&
+                 data.userId is string &&
+                 data.groupId == groupId &&
+                 isPositive(data.amount) &&
+                 data.status in ['requested', 'approved', 'rejected', 'completed'];
+        }
+
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidWithdrawal(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
+        allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}
