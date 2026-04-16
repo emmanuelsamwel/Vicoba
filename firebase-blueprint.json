@@ -2,7 +2,7 @@
   "entities": {
     "User": {
       "title": "User",
-      "description": "A member of the VICOBA group",
+      "description": "A member of the PamojaVault group",
       "type": "object",
       "properties": {
         "uid": { "type": "string" },
@@ -15,15 +15,18 @@
     },
     "Group": {
       "title": "Group",
-      "description": "A VICOBA group",
+      "description": "A PamojaVault group",
       "type": "object",
       "properties": {
         "name": { "type": "string" },
         "description": { "type": "string" },
+        "joinCode": { "type": "string", "description": "Code used by others to join the group" },
+        "adminCount": { "type": "number", "description": "Number of admins required for approvals" },
+        "phoneNumber": { "type": "string", "description": "Group contact phone number for administrative alerts" },
         "createdBy": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["name", "createdBy"]
+      "required": ["name", "createdBy", "joinCode"]
     },
     "Contribution": {
       "title": "Contribution",
@@ -34,6 +37,8 @@
         "groupId": { "type": "string" },
         "amount": { "type": "number" },
         "type": { "type": "string", "enum": ["savings", "social_fund"] },
+        "paymentMethod": { "type": "string", "enum": ["mobile_money", "bank_transfer", "cash"] },
+        "provider": { "type": "string" },
         "phoneNumber": { "type": "string" },
         "date": { "type": "string", "format": "date-time" },
         "status": { "type": "string", "enum": ["pending", "confirmed"] }
@@ -57,22 +62,24 @@
     },
     "Withdrawal": {
       "title": "Withdrawal",
-      "description": "A withdrawal request from the social fund or savings",
+      "description": "A withdrawal request requiring multi-admin OTP approval",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
         "groupId": { "type": "string" },
         "amount": { "type": "number" },
         "reason": { "type": "string" },
-        "status": { "type": "string", "enum": ["requested", "approved", "rejected", "completed"] },
+        "status": { "type": "string", "enum": ["requested", "pending_approval", "approved", "rejected", "completed"] },
+        "otpCode": { "type": "string", "description": "The secret OTP required for this transaction" },
+        "approvals": { "type": "object", "description": "Map of adminUid to approval status" },
         "requestedAt": { "type": "string", "format": "date-time" }
       },
-      "required": ["userId", "groupId", "amount", "status"]
+      "required": ["userId", "groupId", "amount", "status", "otpCode"]
     }
   },
   "firestore": {
     "/users/{userId}": { "schema": "User", "description": "User profiles" },
-    "/groups/{groupId}": { "schema": "Group", "description": "VICOBA groups" },
+    "/groups/{groupId}": { "schema": "Group", "description": "PamojaVault groups" },
     "/groups/{groupId}/contributions/{contributionId}": { "schema": "Contribution", "description": "Group contributions" },
     "/groups/{groupId}/loans/{loanId}": { "schema": "Loan", "description": "Group loans" },
     "/groups/{groupId}/withdrawals/{withdrawalId}": { "schema": "Withdrawal", "description": "Group withdrawals" }

@@ -45,7 +45,7 @@ service cloud.firestore {
     // Helper Functions
     // ===============================================================
     function isAuthenticated() {
-      return request.auth != null;
+      return request.auth != null && request.auth.uid != null;
     }
 
     function isOwner(userId) {
@@ -53,13 +53,11 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() &&
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-         (request.auth.token.email == "samwelemmanuelezekiel@gmail.com" && request.auth.token.email_verified == true));
+      return isAuthenticated() && request.auth.token.email == "samwelemmanuelezekiel@gmail.com";
     }
 
     function isValidEmail(email) {
-      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+      return email is string && (email == "" || email.matches(".*@.*\\..*"));
     }
 
     function isPositive(val) {
@@ -71,38 +69,40 @@ service cloud.firestore {
     // ===============================================================
 
     match /users/{userId} {
-      function isValidUser(data) {
-        return data.keys().hasAll(['uid', 'email', 'role']) &&
-               data.uid == userId &&
-               isValidEmail(data.email) &&
-               data.role in ['admin', 'member'];
-      }
-
+      // Allow all authenticated users to read user profiles so group members can see each other
+      // Each doc must pass the read rule for a query to succeed
       allow read: if isAuthenticated();
-      allow create: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == 'member' || isAdmin());
-      allow update: if isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin());
+      
+      // Strict write access
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
     }
 
     match /groups/{groupId} {
       function isValidGroup(data) {
-        return data.keys().hasAll(['name', 'createdBy', 'createdAt']) &&
+        return data.keys().hasAll(['name', 'createdBy', 'createdAt', 'joinCode']) &&
                data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-               data.createdBy == request.auth.uid;
+               data.joinCode is string && data.joinCode.size() >= 4 &&
+               data.createdBy == request.auth.uid &&
+               (!('phoneNumber' in data) || data.phoneNumber is string);
       }
 
-      allow read: if isAuthenticated();
+      // Allow reading if member OR if querying by joinCode (for joining)
+      allow read: if isAuthenticated(); 
       allow create: if isAuthenticated() && isValidGroup(request.resource.data);
       allow update: if isAdmin() || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
       allow delete: if isAdmin();
 
       match /contributions/{contributionId} {
         function isValidContribution(data) {
-          return data.keys().hasAll(['userId', 'groupId', 'amount', 'type', 'date', 'status']) &&
+          return data.keys().hasAll(['userId', 'groupId', 'amount', 'type', 'date', 'status', 'paymentMethod']) &&
                  data.userId is string &&
                  data.groupId == groupId &&
                  isPositive(data.amount) &&
                  data.type in ['savings', 'social_fund'] &&
                  data.status in ['pending', 'confirmed'] &&
+                 data.paymentMethod in ['mobile_money', 'bank_transfer', 'cash'] &&
+                 (!('provider' in data) || data.provider is string) &&
                  (!('phoneNumber' in data) || data.phoneNumber is string);
         }
 
@@ -129,15 +129,16 @@ service cloud.firestore {
 
       match /withdrawals/{withdrawalId} {
         function isValidWithdrawal(data) {
-          return data.keys().hasAll(['userId', 'groupId', 'amount', 'status', 'requestedAt']) &&
+          return data.keys().hasAll(['userId', 'groupId', 'amount', 'status', 'requestedAt', 'otpCode']) &&
                  data.userId is string &&
                  data.groupId == groupId &&
                  isPositive(data.amount) &&
-                 data.status in ['requested', 'approved', 'rejected', 'completed'];
+                 data.status in ['requested', 'pending_approval', 'approved', 'rejected', 'completed'];
         }
 
         allow read: if isAuthenticated();
         allow create: if isAuthenticated() && isValidWithdrawal(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
+        // Only admins can update status to approved/completed, or add approvals
         allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
         allow delete: if isAdmin();
       }

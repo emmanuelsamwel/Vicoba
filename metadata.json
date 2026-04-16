@@ -1,6 +1,6 @@
 {
-  "name": "VICOBA Manager",
-  "description": "A comprehensive management application for Village Community Banking (VICOBA) groups, featuring contribution tracking, withdrawal management, and loan lifecycle oversight.",
+  "name": "PamojaVault",
+  "description": "A comprehensive management application for community banking groups, featuring contribution tracking, withdrawal management, and loan lifecycle oversight.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }
