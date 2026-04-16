@@ -53,7 +53,18 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuthenticated() && request.auth.token.email == "samwelemmanuelezekiel@gmail.com";
+      return isAuthenticated() && (
+        request.auth.token.email == "samwelemmanuelezekiel@gmail.com" ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
+      );
+    }
+
+    function isGroupAdmin(groupId) {
+      return isAuthenticated() && (
+        request.auth.token.email == "samwelemmanuelezekiel@gmail.com" ||
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin" &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.groupId == groupId)
+      );
     }
 
     function isValidEmail(email) {
@@ -90,8 +101,8 @@ service cloud.firestore {
       // Allow reading if member OR if querying by joinCode (for joining)
       allow read: if isAuthenticated(); 
       allow create: if isAuthenticated() && isValidGroup(request.resource.data);
-      allow update: if isAdmin() || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
-      allow delete: if isAdmin();
+      allow update: if isGroupAdmin(groupId) || (isAuthenticated() && resource.data.createdBy == request.auth.uid);
+      allow delete: if isGroupAdmin(groupId);
 
       match /contributions/{contributionId} {
         function isValidContribution(data) {
@@ -107,9 +118,9 @@ service cloud.firestore {
         }
 
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && isValidContribution(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
-        allow update: if isAdmin();
-        allow delete: if isAdmin();
+        allow create: if isAuthenticated() && isValidContribution(request.resource.data) && (request.resource.data.userId == request.auth.uid || isGroupAdmin(groupId));
+        allow update: if isGroupAdmin(groupId);
+        allow delete: if isGroupAdmin(groupId);
       }
 
       match /loans/{loanId} {
@@ -122,9 +133,9 @@ service cloud.firestore {
         }
 
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && isValidLoan(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
-        allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
-        allow delete: if isAdmin();
+        allow create: if isAuthenticated() && isValidLoan(request.resource.data) && (request.resource.data.userId == request.auth.uid || isGroupAdmin(groupId));
+        allow update: if isGroupAdmin(groupId) || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
+        allow delete: if isGroupAdmin(groupId);
       }
 
       match /withdrawals/{withdrawalId} {
@@ -137,10 +148,23 @@ service cloud.firestore {
         }
 
         allow read: if isAuthenticated();
-        allow create: if isAuthenticated() && isValidWithdrawal(request.resource.data) && (request.resource.data.userId == request.auth.uid || isAdmin());
+        allow create: if isAuthenticated() && isValidWithdrawal(request.resource.data) && (request.resource.data.userId == request.auth.uid || isGroupAdmin(groupId));
         // Only admins can update status to approved/completed, or add approvals
-        allow update: if isAdmin() || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
-        allow delete: if isAdmin();
+        allow update: if isGroupAdmin(groupId) || (isAuthenticated() && resource.data.userId == request.auth.uid && request.resource.data.status == 'requested');
+        allow delete: if isGroupAdmin(groupId);
+      }
+
+      match /messages/{messageId} {
+        function isValidMessage(data) {
+          return data.keys().hasAll(['userId', 'userName', 'content', 'timestamp']) &&
+                 data.userId == request.auth.uid &&
+                 data.userName is string &&
+                 data.content is string && data.content.size() > 0 && data.content.size() < 1000;
+        }
+
+        allow read: if isAuthenticated();
+        allow create: if isAuthenticated() && isValidMessage(request.resource.data);
+        allow delete: if isGroupAdmin(groupId) || (isAuthenticated() && resource.data.userId == request.auth.uid);
       }
     }
   }
